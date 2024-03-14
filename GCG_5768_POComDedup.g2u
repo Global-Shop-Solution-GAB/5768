@@ -1,0 +1,53 @@
+Program.Sub.Preflight.Start
+	v.Global.sPO.Declare(string)
+Program.Sub.Preflight.End
+
+Program.Sub.Main.Start
+	f.Intrinsic.Control.Try
+		'When PO is done saving, get the comments from each line, remove duplicates, and save back to DB.
+		'Hook 16880 - PO Header Post Save
+		f.Intrinsic.Control.If(v.Caller.Hook,=,16880)
+			f.Intrinsic.String.LPad(v.Passed.000008,"0",7,v.Global.sPO)
+			f.Intrinsic.Control.CallSub(RemoveLineCmntDups)
+		f.Intrinsic.Control.EndIf
+	f.Intrinsic.Control.Catch
+		f.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+	f.Intrinsic.Control.EndTry
+Program.Sub.Main.End
+
+Program.Sub.RemoveLineCmntDups.Start
+	f.Intrinsic.Control.Try
+		v.Local.sSQL.Declare(string)
+		v.Local.iCnt.Declare(long)
+		v.Local.sText.Declare(string)
+		
+		f.Intrinsic.String.Build("select * from v_po_ln_text where po_num='{0}';",v.Global.sPO,v.Local.sSQL)
+		f.ODBC.Connection!con.opencompanyconnection
+			f.Data.DataTable.CreateFromSQL("dtPOLnComs","con",v.Local.sSQL)
+		f.ODBC.Connection!con.close
+		
+		f.Intrinsic.Control.If(v.DataTable.dtPOLnComs.RowCount,>,0)
+			'Split dt row by newline, make new datatable, and remove duplicates
+			f.Intrinsic.Control.For(v.Local.iCnt,0,v.DataTable.dtPOLnComs.RowCount--,1)
+				f.Intrinsic.String.replace(v.DataTable.dtPOLnComs(v.Local.iCnt).Text!FieldVal,v.Ambient.NewLine,"*!*",v.Local.sText)
+				f.Data.DataTable.CreateFromString("dtText",v.Local.sText,"Text","string","","*!*")
+				f.Intrinsic.Control.If(v.DataTable.dtText.RowCount,>,0)
+					f.Data.DataView.Create("dtText","dvText",22)
+					f.Data.DataView.todatatabledistinct("dtText","dvText","dtTextNew","Text")
+					f.Data.DataView.Create("dtTextNew","dvTextNew",22)
+					f.Data.DataView.ToString("dtTextNew","dvTextNew","Text","",v.Ambient.NewLine,v.Local.sText)
+					f.Data.DataTable.SetValue("dtPOLnComs",v.Local.iCnt,"Text",v.Local.sText)
+					f.Data.DataView.Close("dtTextNew","dvTextNew")
+					f.Data.DataTable.Close("dtTextNew")
+					f.Data.DataView.Close("dtText","dvText")
+				f.Intrinsic.Control.EndIf
+				f.ODBC.Connection!con.opencompanyconnection
+					f.Data.DataTable.savetodb("dtPOLnComs","con","PO_LN_TEXT","PO_NUM*!*LINE",256)
+				f.ODBC.Connection!con.close
+				f.Data.DataTable.Close("dtText")
+			f.Intrinsic.Control.Next(v.Local.iCnt)
+		f.Intrinsic.Control.EndIf
+	f.Intrinsic.Control.Catch
+		f.Intrinsic.Control.CallSub(ErrorMsg, CurrentSub, v.Ambient.CurrentSubroutine)
+	f.Intrinsic.Control.EndTry
+Program.Sub.RemoveLineCmntDups.End
